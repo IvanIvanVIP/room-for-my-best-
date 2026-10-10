@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Лампочка</title>
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #1a1a1a;
+      font-family: system-ui, sans-serif;
+      color: #aaa;
+      overflow: hidden;
+      transition: background 0.8s ease;
+    }
+
+    body.on {
+      background: #221d12;
+    }
+
+    /* ---------- Комната в настоящем 3D (CSS transforms) ---------- */
+    .scene,
+    .room-dark,
+    .room-light,
+    .room-vignette {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    /* Камера смотрит на комнату чуть сверху, центр вращения - лампочка */
+    .scene {
+      overflow: hidden;
+      perspective: var(--P, 450px);
+      perspective-origin: 50% var(--cy, 32%);
+    }
+
+    .world {
+      position: absolute;
+      left: 50%;
+      top: var(--cy, 32%);
+      width: 0;
+      height: 0;
+      transform-style: preserve-3d;
+      /* камера внутри комнаты: положение задаёт JS (орбита вокруг лампочки) */
+      transform: translateZ(450px);
+      will-change: transform;
+    }
+
+    .world > div,
+    .g3,
+    .f {
+      position: absolute;
+      transform-style: preserve-3d;
+    }
+
+    .wall > .pic { position: absolute; }
+
+
+
+    .f {                               /* грани мебели */
+      backface-visibility: hidden;
+      box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.22);
+    }
+
+    /* Стены видны только изнутри: ближние к камере стены «растворяются» */
+    .wall {
+      left: -520px;
+      top: -520px;
+      width: 1040px;
+      height: 820px;
+      backface-visibility: hidden;
+      background:
+        radial-gradient(ellipse 60% 55% at 50% 55%, rgba(255, 215, 150, 0.22), transparent 70%),
+        repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.08) 0 26px, transparent 26px 52px),
+        #5c4c3b;
+    }
+
+    .wall::before,
+    .wall::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+    }
+
+    .wall::before {                    /* карниз */
+      top: 0;
+      height: 30px;
+      background: #7a6850;
+      box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.18);
+    }
+
+    .wall::after {                     /* плинтус */
+      bottom: 0;
+      height: 36px;
+      background: #8a7559;
+      box-shadow: inset 0 4px 0 rgba(255, 255, 255, 0.1);
+    }
+
+    .w-back  { transform: translateZ(-520px); }
+    .w-left  { transform: rotateY(90deg) translateZ(-520px); background-color: #4c3e30; }
+    .w-right { transform: rotateY(-90deg) translateZ(-520px); background-color: #4c3e30; }
+    .w-front { transform: rotateY(180deg) translateZ(-520px); }
+
+    .floor {
+      left: -520px;
+      top: -520px;
+      width: 1040px;
+      height: 1040px;
+      transform: translateY(300px) rotateX(90deg);
+      backface-visibility: hidden;
+      background:
+        radial-gradient(circle at 50% 50%, rgba(255, 215, 150, 0.3), transparent 60%),
+        repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.16) 0 2px, transparent 2px 80px),
+        repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.1) 0 2px, transparent 2px 180px),
+        #5a432e;
+    }
+
+    .rug {
+      left: -240px;
+      top: -170px;
+      width: 480px;
+      height: 340px;
+      transform: translateY(299px) rotateX(90deg);
+      backface-visibility: hidden;
+      background: #6e3a3a;
+      border: 8px double #c09a62;
+    }
+
+    .ceiling {
+      left: -520px;
+      top: -520px;
+      width: 1040px;
+      height: 1040px;
+      transform: translateY(-520px) rotateX(-90deg);
+      backface-visibility: hidden;
+      background:
+        radial-gradient(circle at 50% 50%, rgba(255, 215, 150, 0.3), transparent 62%),
+        repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.05) 0 2px, transparent 2px 130px),
+        #4d4236;
+      box-shadow: inset 0 0 0 14px rgba(122, 104, 80, 0.55), inset 0 0 60px rgba(0, 0, 0, 0.35);
+    }
+
+    /* Нежная надпись на стене напротив книжной полки */
+    .love {
+      left: 170px;
+      top: 640px;
+      width: 700px;
+      height: 110px;
+      line-height: 170px;
+      text-align: center;
+      white-space: nowrap;
+      font-family: "Segoe Script", "Marck Script", "Brush Script MT", cursive;
+      font-size: 112px;
+      color: rgba(255, 205, 220, 0.82);
+      text-shadow: 0 0 14px rgba(255, 170, 195, 0.35), 0 2px 3px rgba(60, 20, 30, 0.35);
+      user-select: none;
+    }
+    .shadow {
+      background: #000;
+      opacity: 0.45;
+      filter: blur(12px);
+      backface-visibility: hidden;
+    }
+
+    /* Картины */
+    .pic {
+      border: 9px solid #9a7a38;
+      box-shadow: 5px 6px 10px rgba(0, 0, 0, 0.35);
+    }
+
+    .p-land {
+      background:
+        radial-gradient(circle at 72% 28%, #f3d27a 0 11%, transparent 12%),
+        linear-gradient(#46703a, #46703a) bottom / 100% 18% no-repeat,
+        radial-gradient(ellipse 70% 60% at 30% 100%, #5f8a4f 0 99%, transparent 100%),
+        #9bb7c9;
+    }
+
+    .p-sunset {
+      background:
+        radial-gradient(circle at 50% 55%, #f6d58a 0 16%, transparent 17%),
+        linear-gradient(135deg, transparent 49%, #5a3d4d 50%) bottom left / 55% 45% no-repeat,
+        linear-gradient(225deg, transparent 49%, #5a3d4d 50%) bottom right / 55% 55% no-repeat,
+        #d98c5f;
+    }
+
+    .p-blue {
+      background:
+        radial-gradient(circle at 28% 28%, #e8d9a8 0 10%, transparent 11%),
+        linear-gradient(135deg, transparent 49%, #2f4a5e 50%) bottom left / 60% 50% no-repeat,
+        linear-gradient(225deg, transparent 49%, #2f4a5e 50%) bottom right / 60% 38% no-repeat,
+        #4a6f8a;
+    }
+
+    .p-portrait {
+      background:
+        radial-gradient(circle at 50% 38%, #7a3b3b 0 24%, transparent 25%),
+        linear-gradient(#3f5f7a, #3f5f7a) bottom center / 66% 26% no-repeat,
+        #d2ad70;
+    }
+
+    .p-warm {
+      background:
+        radial-gradient(circle at 66% 40%, #e9e0c0 0 12%, transparent 13%),
+        linear-gradient(135deg, transparent 49%, #6b4f3a 50%) bottom left / 60% 45% no-repeat,
+        linear-gradient(225deg, transparent 49%, #6b4f3a 50%) bottom right / 60% 50% no-repeat,
+        #b9a26a;
+    }
+
+    /* Тьма поверх комнаты: пока свет выключен, мебель едва угадывается */
+    .room-dark {
+      background: #0b0b0d;
+      opacity: 0.9;
+      transition: opacity 1.6s ease-in-out;
+    }
+
+    /* Тёплый свет от лампочки, расходящийся по комнате */
+    .room-light {
+      background: radial-gradient(ellipse 60% 70% at 50% 52%,
+        rgba(255, 205, 120, 0.32) 0%,
+        rgba(255, 175, 80, 0.14) 38%,
+        transparent 70%);
+      mix-blend-mode: screen;
+      opacity: 0;
+      transition: opacity 1.6s ease-in-out;
+    }
+
+    /* Углы комнаты остаются темнее, как при одной лампе под потолком */
+    .room-vignette {
+      background: radial-gradient(ellipse 85% 85% at 50% 50%,
+        transparent 35%,
+        rgba(8, 4, 0, 0.7) 100%);
+      opacity: 0;
+      transition: opacity 1.6s ease-in-out;
+    }
+
+    body.on .room-dark     { opacity: 0.1; }
+    body.on .room-vignette { opacity: 1; }
+    body.on .room-light {
+      opacity: 1;
+      animation: room-flicker 4s ease-in-out 1.8s infinite;
+    }
+
+    @keyframes room-flicker {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0.85; }
+    }
+
+    /* Лампа стоит на оси вращения комнаты, поэтому на экране она неподвижна:
+       центр колбы - в точке схода, а размер подогнан под масштаб сцены */
+    .lamp {
+      position: fixed;
+      left: 50%;
+      top: var(--cy, 32%);
+      width: 160px;
+      height: 304px;
+      margin: -211px 0 0 -80px;
+      transform-origin: 80px 211px;
+      transform: scale(var(--lamp-s, 0.8));
+      z-index: 2;
+    }
+
+    /* Провод от потолка до патрона */
+    .wire {
+      position: absolute;
+      left: 50%;
+      bottom: calc(100% - 2px);
+      width: 4px;
+      height: 730px;           /* до потолочного крепления */
+      transform: translateX(-50%);
+      border-radius: 2px;
+      background: #2a2a2a;
+    }
+
+    /* Подсветка провода: ярче у лампочки, к потолку гаснет */
+    .wire::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: linear-gradient(to top,
+        rgba(255, 214, 120, 0.95) 0px,
+        rgba(255, 190, 80, 0.45) 90px,
+        rgba(255, 170, 60, 0.12) 220px,
+        transparent 380px);
+      box-shadow: 0 0 6px rgba(255, 200, 100, 0.35);
+      opacity: 0;
+      transition: opacity 0.9s ease;
+    }
+
+    .lamp.on .wire::after {
+      opacity: 1;
+    }
+
+    .bulb {
+      position: relative;
+      display: block;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 0;
+    }
+
+    /* Круглое рассеянное свечение вокруг колбы */
+    .halo {
+      position: fixed;           /* лампа на оси вращения, поэтому её центр на экране неподвижен */
+      left: 50%;
+      top: var(--cy, 32%);
+      width: 300px;
+      height: 300px;
+      z-index: 1;
+      border-radius: 50%;
+      background: radial-gradient(circle,
+        rgba(255, 236, 160, 0.75) 0%,
+        rgba(255, 210, 90, 0.45) 18%,
+        rgba(255, 180, 50, 0.18) 40%,
+        rgba(255, 160, 40, 0.06) 58%,
+        transparent 72%);
+      filter: blur(18px);
+      transform: translate(-50%, -50%) scale(0.5);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.9s ease, transform 0.9s cubic-bezier(.2, .8, .2, 1);
+    }
+
+    body.on .halo {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+      animation: flicker 4s ease-in-out 1s infinite;
+    }
+
+    /* Едва заметное «дыхание» света */
+    @keyframes flicker {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0.88; }
+    }
+
+    .bulb svg {
+      position: relative;
+      width: 160px;
+      height: auto;
+      display: block;
+      overflow: visible;
+    }
+
+    .glass-lit,
+    .glass-glow,
+    .socket-lit,
+    .socket-rim {
+      opacity: 0;
+      transition: opacity 0.7s ease;
+    }
+
+    .filament {
+      stroke: #777;
+      transition: stroke 0.5s ease;
+    }
+
+    .fil-glow,
+    .core-bloom {
+      opacity: 0;
+      transition: opacity 0.7s ease;
+    }
+
+    .glass-shade { transition: opacity 0.7s ease; }
+    .lamp.on .glass-shade { opacity: 0.35; }
+    .lamp.on .fil-glow { opacity: 0.9; }
+    .lamp.on .core-bloom { opacity: 1; }
+    .lamp.on .glass-lit  { opacity: 1; }
+    .lamp.on .glass-glow { opacity: 0.9; }
+    .lamp.on .socket-lit { opacity: 1; }
+    .lamp.on .socket-rim { opacity: 0.8; }
+
+    .lamp.on .filament {
+      stroke: #fffbe6;
+    }
+
+    .hint {
+      font-size: 16px;
+      user-select: none;
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+      text-align: center;
+      z-index: 2;
+    }
+
+    .hint-sub {
+      margin-top: 4px;
+      font-size: 13px;
+      opacity: 0.6;
+    }
+  </style>
+</head>
+<body>
+  <!-- Комната: настоящая 3D-сцена, вращается вокруг лампочки -->
+  <div class="scene" aria-hidden="true">
+    <div class="world" id="world">
+      <div class="floor"></div>
+      <div class="ceiling"></div>
+      <div class="rug"></div>
+
+      <div class="wall w-back">
+        <div class="pic p-land"    style="left:130px; top:210px; width:220px; height:150px; background:url('%D0%A4%D0%BE%D1%82%D0%BE%20%D0%9A%D1%81%D1%8E%D1%88%D0%B0/photo_3_2026-10-10_22-31-37.jpg') center/cover"></div>
+        <div class="pic p-sunset"  style="left:660px; top:110px; width:112px; height:150px; background:url('%D0%A4%D0%BE%D1%82%D0%BE%20%D0%9A%D1%81%D1%8E%D1%88%D0%B0/photo_5_2026-10-10_22-31-37.jpg') center/cover"></div>
+      </div>
+      <div class="wall w-left">
+        <div class="pic p-blue"    style="left:410px; top:240px; width:210px; height:145px; background:url('%D0%A4%D0%BE%D1%82%D0%BE%20%D0%9A%D1%81%D1%8E%D1%88%D0%B0/photo_2_2026-10-10_22-31-37.jpg') center/cover"></div>
+        <div class="pic p-portrait" style="left:190px; top:260px; width:90px; height:125px; background:url('%D0%A4%D0%BE%D1%82%D0%BE%20%D0%9A%D1%81%D1%8E%D1%88%D0%B0/photo_1_2026-10-10_22-31-37.jpg') center/cover"></div>
+      </div>
+      <div class="wall w-right">
+        <div class="pic p-warm"    style="left:410px; top:240px; width:210px; height:145px; background:url('%D0%A4%D0%BE%D1%82%D0%BE%20%D0%9A%D1%81%D1%8E%D1%88%D0%B0/photo_2_2026-10-10_22-31-37.jpg') center/cover"></div>
+      </div>
+      <div class="wall w-front">
+        <div class="pic p-portrait" style="left:200px; top:230px; width:110px; height:150px; background:url('%D0%A4%D0%BE%D1%82%D0%BE%20%D0%9A%D1%81%D1%8E%D1%88%D0%B0/photo_4_2026-10-10_22-31-37.jpg') center/cover"></div>
+        <div class="pic p-land"     style="left:650px; top:250px; width:200px; height:135px; background:url('%D0%A4%D0%BE%D1%82%D0%BE%20%D0%9A%D1%81%D1%8E%D1%88%D0%B0/photo_3_2026-10-10_22-31-37.jpg') center/cover"></div>
+        <div class="pic love" style="left:20px; top:580px; width:1000px; height:170px; border:0; box-shadow:none">я тебя люблю</div>
+      </div>
+    </div>
+  </div>
+  <div class="room-dark"></div>
+  <div class="room-light"></div>
+  <div class="room-vignette"></div>
+  <span class="halo"></span>
+
+
+  <div class="lamp" id="lamp">
+    <div class="wire"></div>
+    <button class="bulb" id="bulb" aria-label="Включить лампочку" aria-pressed="false">
+      <svg viewBox="0 0 100 190" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <!-- Колба: цвет стекла в выключенном состоянии -->
+          <radialGradient id="offGlass" cx="40%" cy="62%" r="68%" fx="36%" fy="58%">
+            <stop offset="0%"   stop-color="#8a9097"/>
+            <stop offset="55%"  stop-color="#4d5258"/>
+            <stop offset="100%" stop-color="#23262a"/>
+          </radialGradient>
+          <!-- Колба: цвет стекла, когда горит -->
+          <radialGradient id="litGlass" cx="50%" cy="68%" r="62%" fx="50%" fy="70%">
+            <stop offset="0%"   stop-color="#fffef4"/>
+            <stop offset="30%"  stop-color="#ffec96"/>
+            <stop offset="70%"  stop-color="#ffc93d"/>
+            <stop offset="100%" stop-color="#e8921a"/>
+          </radialGradient>
+          <!-- Объём шара: светлее сверху-слева, темнее снизу-справа -->
+          <radialGradient id="sphereShade" cx="34%" cy="56%" r="78%" fx="30%" fy="50%">
+            <stop offset="0%"   stop-color="#fff" stop-opacity="0.22"/>
+            <stop offset="45%"  stop-color="#fff" stop-opacity="0"/>
+            <stop offset="100%" stop-color="#000" stop-opacity="0.5"/>
+          </radialGradient>
+          <!-- Толщина стекла: светлая кромка слева, тёплый отсвет справа -->
+          <linearGradient id="glassRim" x1="0" x2="1">
+            <stop offset="0%"   stop-color="#fff" stop-opacity="0.75"/>
+            <stop offset="40%"  stop-color="#fff" stop-opacity="0.12"/>
+            <stop offset="75%"  stop-color="#ffd9a0" stop-opacity="0.25"/>
+            <stop offset="100%" stop-color="#ffe2b0" stop-opacity="0.7"/>
+          </linearGradient>
+          <!-- Металл цоколя и патрона (цилиндр, свет слева) -->
+          <linearGradient id="screwMetal" x1="0" x2="1">
+            <stop offset="0%"   stop-color="#4a4a4a"/>
+            <stop offset="16%"  stop-color="#d4d4d4"/>
+            <stop offset="34%"  stop-color="#9c9c9c"/>
+            <stop offset="72%"  stop-color="#666"/>
+            <stop offset="100%" stop-color="#2e2e2e"/>
+          </linearGradient>
+          <linearGradient id="socketMetal" x1="0" x2="1">
+            <stop offset="0%"   stop-color="#1c1c1c"/>
+            <stop offset="18%"  stop-color="#5e5e5e"/>
+            <stop offset="36%"  stop-color="#3c3c3c"/>
+            <stop offset="75%"  stop-color="#262626"/>
+            <stop offset="100%" stop-color="#111"/>
+          </linearGradient>
+          <!-- Тёплый отсвет на патроне снизу, от лампочки -->
+          <linearGradient id="socketWarm" x1="0" y1="1" x2="0" y2="0">
+            <stop offset="0%"   stop-color="#ffcf6b" stop-opacity="0.8"/>
+            <stop offset="45%"  stop-color="#ffb347" stop-opacity="0.3"/>
+            <stop offset="100%" stop-color="#ffa030" stop-opacity="0"/>
+          </linearGradient>
+          <radialGradient id="bloom" cx="50%" cy="50%" r="50%">
+            <stop offset="0%"   stop-color="#fff" stop-opacity="1"/>
+            <stop offset="40%"  stop-color="#fff6c0" stop-opacity="0.6"/>
+            <stop offset="100%" stop-color="#ffd45c" stop-opacity="0"/>
+          </radialGradient>
+          <clipPath id="glassClip">
+            <path d="M50 185 C78 185 95 163 95 138 C95 118 82 108 74 95 C70 88 69 84 69 80 L31 80 C31 84 30 88 26 95 C18 108 5 118 5 138 C5 163 22 185 50 185 Z"/>
+          </clipPath>
+          <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="8"/>
+          </filter>
+          <filter id="rimGlow" x="-30%" y="-100%" width="160%" height="300%">
+            <feGaussianBlur stdDeviation="2.5"/>
+          </filter>
+          <filter id="blur1"><feGaussianBlur stdDeviation="1"/></filter>
+          <filter id="blur2" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.2"/></filter>
+        </defs>
+
+        <!-- Колба цоколем вверх -->
+        <path class="glass-glow" filter="url(#softGlow)" fill="#ffd45c" d="M50 185 C78 185 95 163 95 138 C95 118 82 108 74 95 C70 88 69 84 69 80 L31 80 C31 84 30 88 26 95 C18 108 5 118 5 138 C5 163 22 185 50 185 Z"/>
+        <path fill="url(#offGlass)" d="M50 185 C78 185 95 163 95 138 C95 118 82 108 74 95 C70 88 69 84 69 80 L31 80 C31 84 30 88 26 95 C18 108 5 118 5 138 C5 163 22 185 50 185 Z"/>
+        <path class="glass-lit" fill="url(#litGlass)" d="M50 185 C78 185 95 163 95 138 C95 118 82 108 74 95 C70 88 69 84 69 80 L31 80 C31 84 30 88 26 95 C18 108 5 118 5 138 C5 163 22 185 50 185 Z"/>
+
+        <!-- Внутренности колбы: ножка, держатели и нить -->
+        <g clip-path="url(#glassClip)">
+          <rect x="46.5" y="80" width="7" height="34" fill="#c9d4d8" opacity="0.35"/>
+          <rect x="46.5" y="80" width="2" height="34" fill="#fff" opacity="0.35"/>
+          <path d="M45 80 L38 115 M55 80 L62 115" stroke="#7d7d7d" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+          <path class="fil-glow" filter="url(#blur2)" d="M38 115 L44 128 L50 115 L56 128 L62 115" fill="none" stroke="#fff3b0" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>
+          <path class="filament" d="M38 115 L44 128 L50 115 L56 128 L62 115" fill="none" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+          <path d="M38 115 L44 128 L50 115 L56 128 L62 115" fill="none" stroke="#000" stroke-opacity="0.35" stroke-width="2.4" stroke-dasharray="1 1.6" stroke-linejoin="round"/>
+          <ellipse class="core-bloom" cx="50" cy="124" rx="26" ry="22" fill="url(#bloom)"/>
+        </g>
+
+        <!-- Объём: затемнение к краям и блики на стекле -->
+        <path class="glass-shade" fill="url(#sphereShade)" d="M50 185 C78 185 95 163 95 138 C95 118 82 108 74 95 C70 88 69 84 69 80 L31 80 C31 84 30 88 26 95 C18 108 5 118 5 138 C5 163 22 185 50 185 Z"/>
+        <path fill="none" stroke="url(#glassRim)" stroke-width="1.6" d="M50 185 C78 185 95 163 95 138 C95 118 82 108 74 95 C70 88 69 84 69 80 L31 80 C31 84 30 88 26 95 C18 108 5 118 5 138 C5 163 22 185 50 185 Z"/>
+        <path d="M14 141 C13 128 19 118 28 112" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity="0.5" filter="url(#blur1)"/>
+        <path d="M17 150 C16.5 152 17.5 156 20 160" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity="0.35"/>
+        <ellipse cx="30" cy="115" rx="3.2" ry="1.6" fill="#fff" opacity="0.8" transform="rotate(-40 30 115)"/>
+        <path d="M84 150 C82 162 72 174 60 178" fill="none" stroke="#ffe1a8" stroke-width="2" stroke-linecap="round" opacity="0.35" filter="url(#blur1)"/>
+
+        <!-- Резьбовой цоколь -->
+        <g>
+          <path d="M31 80 L31 58 L69 58 L69 80 Q50 86 31 80 Z" fill="url(#screwMetal)"/>
+          <path d="M31 63 Q50 69 69 63 M31 69 Q50 75 69 69 M31 75 Q50 81 69 75" fill="none" stroke="#1d1d1d" stroke-opacity="0.65" stroke-width="1.8"/>
+          <path d="M31 61.5 Q50 67.5 69 61.5 M31 67.5 Q50 73.5 69 67.5 M31 73.5 Q50 79.5 69 73.5" fill="none" stroke="#fff" stroke-opacity="0.35" stroke-width="0.8"/>
+          <path d="M31.5 80 Q50 86 68.5 80" fill="none" stroke="#111" stroke-width="3" opacity="0.7"/>
+        </g>
+
+        <!-- Патрон -->
+        <g>
+          <rect x="41" y="0" width="18" height="12" rx="3" fill="url(#socketMetal)"/>
+          <path d="M26 14 Q26 8 32 8 L68 8 Q74 8 74 14 L74 52 L26 52 Z" fill="url(#socketMetal)"/>
+          <ellipse cx="50" cy="8" rx="24" ry="3.4" fill="#4a4a4a"/>
+          <ellipse cx="50" cy="8" rx="17" ry="2" fill="#2a2a2a"/>
+          <!-- Рёбра патрона -->
+          <path d="M26 21 Q50 25 74 21 M26 33 Q50 37 74 33 M26 45 Q50 49 74 45" fill="none" stroke="#0e0e0e" stroke-opacity="0.8" stroke-width="2"/>
+          <path d="M26 19.5 Q50 23.5 74 19.5 M26 31.5 Q50 35.5 74 31.5 M26 43.5 Q50 47.5 74 43.5" fill="none" stroke="#fff" stroke-opacity="0.16" stroke-width="0.8"/>
+          <rect x="30" y="12" width="3" height="40" rx="1.5" fill="#fff" opacity="0.16"/>
+          <!-- Нижняя кромка: внутри виден цоколь -->
+          <path d="M26 52 L74 52 L74 58 Q50 66 26 58 Z" fill="#171717"/>
+          <path d="M26 58 Q50 66 74 58" fill="none" stroke="#6a6a6a" stroke-width="1.4"/>
+          <!-- Тёплый отсвет и светящаяся кромка -->
+          <path class="socket-lit" d="M26 14 Q26 8 32 8 L68 8 Q74 8 74 14 L74 58 Q50 66 26 58 Z" fill="url(#socketWarm)"/>
+          <rect class="socket-rim" x="28" y="55" width="44" height="4" rx="2" fill="#ffd27a" filter="url(#rimGlow)"/>
+        </g>
+      </svg>
+    </button>
+  </div>
+  <div class="hint"><div id="hint">Нажми на лампочку</div><div class="hint-sub">Крути колёсико мыши, чтобы обойти комнату</div></div>
+
+  <script>
+    /* ---------- 3D-комната: мебель из блоков + вращение колёсиком ---------- */
+    (function buildRoom() {
+      const world = document.getElementById('world');
+      const FLOOR = 300;                 // пол на 300px ниже центра лампочки
+      const LIGHT = [0, -110, 0];        // лампочка - в середине высоты комнаты
+      const rad = deg => deg * Math.PI / 180;
+
+      // Поворот вокруг оси Y так же, как это делает CSS rotateY
+      const rotY = ([x, y, z], deg) => {
+        const c = Math.cos(rad(deg)), s = Math.sin(rad(deg));
+        return [x * c + z * s, y, -x * s + z * c];
+      };
+
+      function shade(hex, f) {
+        const n = parseInt(hex.slice(1), 16);
+        const c = [n >> 16, (n >> 8) & 255, n & 255]
+          .map(v => Math.max(0, Math.min(255, Math.round(v * f))));
+        return '#' + c.map(v => v.toString(16).padStart(2, '0')).join('');
+      }
+
+      // Яркость грани: лампа светит из центра, поэтому грани, обращённые к ней, светлее
+      function lighting(center, normal) {
+        const v = [LIGHT[0] - center[0], LIGHT[1] - center[1], LIGHT[2] - center[2]];
+        const dist = Math.hypot(...v) || 1;
+        const lam = Math.max(0, (v[0] * normal[0] + v[1] * normal[1] + v[2] * normal[2]) / dist);
+        const att = 1 / (1 + Math.pow(dist / 800, 2));
+        return 0.38 + 1.1 * lam * att;
+      }
+
+      function mk(parent, cls, css) {
+        const d = document.createElement('div');
+        d.className = cls || 'g3';
+        if (css) d.style.cssText = css;
+        parent.appendChild(d);
+        return d;
+      }
+
+      // Группа предмета: стоит на полу в (x, z) и повёрнута на ry градусов
+      function group(x, z, ry = 0) {
+        const el = mk(world, '', `left:0;top:0;width:0;height:0;transform:translate3d(${x}px,${FLOOR}px,${z}px) rotateY(${ry}deg)`);
+        return { el, x, z, ry };
+      }
+
+      // Добавляет набор граней вокруг центра (cx, cy, cz) внутри группы g
+      function addFaces(g, cx, cy, cz, ry, faces, color, label) {
+        const holder = mk(g.el, '', `left:0;top:0;width:0;height:0;transform:translate3d(${cx}px,${cy}px,${cz}px) rotateY(${ry}deg)`);
+        const [wx, wy, wz] = rotY([cx, cy, cz], g.ry);
+        const origin = [g.x + wx, FLOOR + wy, g.z + wz];
+        const totalRot = g.ry + ry;
+        faces.forEach(f => {
+          const c = rotY(f.c, totalRot);
+          const n = rotY(f.n, totalRot);
+          const k = lighting([origin[0] + c[0], origin[1] + c[1], origin[2] + c[2]], n);
+          const face = mk(holder, 'f',
+            `left:${-f.w / 2}px;top:${-f.h / 2}px;width:${f.w}px;height:${f.h}px;` +
+            `transform:${f.tf};background:${shade(color, k)};${f.css || ''}`);
+          if (f.label) {                  // надпись на корешке: вертикально, цвет тоже берёт свет от лампы
+            if (f.flat) {                // надпись поперёк книги: поворачиваем текст на 90°
+              const s = document.createElement('span');
+              s.textContent = f.label;
+              s.style.cssText = `flex:none;display:flex;align-items:center;justify-content:center;width:${f.h}px;height:${f.w}px;transform:rotate(90deg)`;
+              face.appendChild(s);
+            } else face.textContent = f.label;
+            face.style.cssText += `;display:flex;align-items:center;justify-content:center;${f.flat ? 'text-align:center;white-space:normal;' : 'writing-mode:vertical-rl;'}`
+              + `${f.flat ? "font:400 ${f.fs}px/1.05 'Segoe Script','Marck Script',cursive;padding:4px 8px;" : "font:700 ${f.fs}px/1 'Segoe UI',Arial,sans-serif;letter-spacing:.5px;white-space:nowrap;"}`
+              + `color:${shade('#f6e7bd', k)};text-shadow:0 1px 0 rgba(0,0,0,.35)`;
+          }
+        });
+      }
+
+      // Параллелепипед: bottom - высота нижней грани над полом
+      function box(g, cx, bottom, cz, w, h, d, color, ry = 0, label = '', fs = 14, topLabel = '', tex = {}) {
+        const cy = -(bottom + h / 2);
+        addFaces(g, cx, cy, cz, ry, [
+          { w, h, tf: `translateZ(${d / 2}px)`,                   c: [0, 0, d / 2],  n: [0, 0, 1], label, fs, css: tex.front || tex.all },
+          { w, h, tf: `rotateY(180deg) translateZ(${d / 2}px)`,   c: [0, 0, -d / 2], n: [0, 0, -1], css: tex.all },
+          { w: d, h, tf: `rotateY(90deg) translateZ(${w / 2}px)`,  c: [w / 2, 0, 0],  n: [1, 0, 0], css: tex.all },
+          { w: d, h, tf: `rotateY(-90deg) translateZ(${w / 2}px)`, c: [-w / 2, 0, 0], n: [-1, 0, 0], css: tex.all },
+          { w, h: d, tf: `rotateX(90deg) translateZ(${h / 2}px)`,  c: [0, -h / 2, 0], n: [0, -1, 0], label: topLabel, fs: 16, flat: true, css: tex.top || tex.all },
+          { w, h: d, tf: `rotateX(-90deg) translateZ(${h / 2}px)`, c: [0, h / 2, 0],  n: [0, 1, 0], css: tex.all },
+        ], color);
+      }
+
+      // Лепесток/лист: плоская двусторонняя пластинка, закреплена нижним краем в (cx, bottom, cz).
+      // yaw - направление, tilt - наклон верхушки наружу (0 - вертикально, 90 - горизонтально)
+      function petal(g, cx, bottom, cz, yaw, tilt, w, h, color, green = false, shape = '') {
+        const holder = mk(g.el, '', `left:0;top:0;width:0;height:0;transform:translate3d(${cx}px,${-bottom}px,${cz}px) rotateY(${yaw}deg)`);
+        const [wx, wy, wz] = rotY([cx, -bottom, cz], g.ry);
+        const t = rad(tilt);
+        // освещение берём по нормали, смотрящей вверх и внутрь чаши
+        const inner = rotY([0, -Math.cos(t) * 0.0 - Math.cos(t), -Math.sin(t)], yaw + g.ry);
+        const mid = rotY([0, -h * Math.cos(t) / 2, h * Math.sin(t) / 2], yaw + g.ry);
+        const k = lighting([g.x + wx + mid[0], FLOOR + wy + mid[1], g.z + wz + mid[2]], inner);
+        const base = shade(color, k * 0.8), edge = shade(color, k * 1.25), rim = shade(color, k * 1.5);
+        mk(holder, '',
+          `left:${-w / 2}px;top:${-h}px;width:${w}px;height:${h}px;transform-origin:50% 100%;transform:rotateX(${-tilt}deg);` +
+          `backface-visibility:visible;border-radius:${shape || (green ? '50% 50% 20% 20% / 85% 85% 15% 15%' : '50% 50% 42% 42% / 78% 78% 22% 22%')};` +
+          `background:radial-gradient(ellipse at 50% 100%, ${base} 0%, ${shade(color, k)} 55%, ${edge} 100%);` +
+          `box-shadow:inset 0 0 0 1px ${rim}55, inset 0 -3px 5px rgba(0,0,0,0.25)`);
+      }
+
+      // Лист розы: заострённая пластинка с жилкой
+      function leaf(g, cx, bottom, cz, yaw, tilt, len, wid) {
+        const holder = mk(g.el, '', `left:0;top:0;width:0;height:0;transform:translate3d(${cx}px,${-bottom}px,${cz}px) rotateY(${yaw}deg)`);
+        const [wx, wy, wz] = rotY([cx, -bottom, cz], g.ry);
+        const t = rad(tilt);
+        const mid = rotY([0, -len * Math.cos(t) / 2, len * Math.sin(t) / 2], yaw + g.ry);
+        const inner = rotY([0, -1, -0.2], yaw + g.ry);
+        const k = lighting([g.x + wx + mid[0], FLOOR + wy + mid[1], g.z + wz + mid[2]], inner);
+        const c1 = shade('#2f5a2b', k), c2 = shade('#5a9a4d', k * 1.1);
+        mk(holder, '',
+          `left:${-wid / 2}px;top:${-len}px;width:${wid}px;height:${len}px;transform-origin:50% 100%;transform:rotateX(${-tilt}deg);` +
+          `backface-visibility:visible;border-radius:50% 50% 50% 50% / 90% 90% 12% 12%;` +
+          `background:linear-gradient(90deg, transparent 47%, rgba(0,0,0,0.3) 49% 51%, transparent 53%), ` +
+          `linear-gradient(0deg, ${c1}, ${c2});box-shadow:inset 0 0 0 1px rgba(0,0,0,0.2)`);
+      }
+      // Цилиндр (призма из N граней) - для чашки
+      function cylinder(g, cx, bottom, cz, r, h, color, N = 12, open = false) {
+        const cy = -(bottom + h / 2);
+        const side = 2 * r * Math.tan(Math.PI / N) + 0.6;
+        const apothem = r * Math.cos(Math.PI / N);
+        const faces = [];
+        for (let i = 0; i < N; i++) {
+          const a = i * 360 / N;
+          faces.push({
+            w: side, h, tf: `rotateY(${a}deg) translateZ(${apothem}px)`,
+            c: rotY([0, 0, apothem], a), n: rotY([0, 0, 1], a),
+          });
+        }
+        faces.push({
+          w: 2 * r, h: 2 * r, tf: `rotateX(90deg) translateZ(${h / 2}px)`,
+          c: [0, -h / 2, 0], n: [0, -1, 0],
+          css: open ? 'border-radius:50%;background:#150e08;box-shadow:inset 0 0 0 2px rgba(255,255,255,0.12)'
+                    : 'border-radius:50%;box-shadow:inset 0 0 0 4px rgba(0,0,0,0.25)',
+        });
+        addFaces(g, cx, cy, cz, 0, faces, color);
+      }
+
+      // Мягкая тень на полу
+      function shadow(x, z, w, d, ry = 0) {
+        mk(world, 'shadow',
+          `left:${-w / 2}px;top:${-d / 2}px;width:${w}px;height:${d}px;` +
+          `transform:translate3d(${x}px,${FLOOR - 1.5}px,${z}px) rotateY(${ry}deg) rotateX(90deg)`);
+      }
+
+      // ---- Текстуры обивки ----
+      const WEAVE = [
+        'repeating-linear-gradient(0deg, rgba(0,0,0,.07) 0 1px, transparent 1px 3px)',
+        'repeating-linear-gradient(90deg, rgba(255,255,255,.035) 0 1px, transparent 1px 3px)',
+      ];
+      const FLUFF = 'radial-gradient(rgba(0,0,0,.08) 0.8px, transparent 1.4px)';
+      // tile - слои с плиткой tileSize (стёжка), auto - слои на всю грань (объём подушки)
+      function fabric({ auto = [], tile = [], tileSize = 30 } = {}) {
+        const imgs = [...tile, ...auto, ...WEAVE, FLUFF];
+        const sizes = [...tile.map(() => `${tileSize}px ${tileSize}px`), ...auto.map(() => 'auto'), 'auto', 'auto', '6px 6px'];
+        return `background-image:${imgs.join(',')};background-size:${sizes.join(',')};`;
+      }
+      const PUFF = 'radial-gradient(ellipse at 50% 50%, rgba(255,235,200,.32), rgba(0,0,0,.22) 100%)';
+      const FLAT = fabric();
+      const PUFFY = fabric({ auto: [PUFF] });
+      // Каретная стяжка: ромбы со складками и пуговицами в узлах
+      const QUILT = fabric({
+        tile: [
+          'linear-gradient(45deg, transparent calc(50% - 1px), rgba(0,0,0,.34) 50%, transparent calc(50% + 1px))',
+          'linear-gradient(-45deg, transparent calc(50% - 1px), rgba(0,0,0,.34) 50%, transparent calc(50% + 1px))',
+          ...['0 0', '100% 0', '0 100%', '100% 100%', '50% 50%'].map(pos =>
+            `radial-gradient(circle at ${pos}, rgba(20,8,0,.75) 2.2px, rgba(255,235,200,.25) 3.3px, transparent 4.2px)`),
+        ],
+        auto: [PUFF],
+        tileSize: 28,
+      });
+      const WOOD = 'background-image:repeating-linear-gradient(90deg, rgba(0,0,0,.2) 0 1px, transparent 1px 3px),repeating-linear-gradient(90deg, rgba(255,255,255,.07) 0 2px, transparent 2px 8px);';
+
+      // ---- Кресло, обращённое лицом к центру ----
+      function armchair(x, ry) {
+        const g = group(x, 0, ry), S = 1.3;
+        const BODY = '#8a5a3c', DARK = '#6b4429', SOFT = '#a06b46', LIGHT = '#b07a52', PIPE = '#4d2f1a';
+        const b = (cx, bottom, cz, w, h, d, color, tex = {}) =>
+          box(g, cx * S, bottom * S, cz * S, w * S, h * S, d * S, color, 0, '', 14, '', tex);
+        shadow(x, 0, 290, 260, ry);
+
+        // точёные ножки с набалдашником
+        [[-76, -70], [76, -70], [-76, 70], [76, 70]].forEach(([dx, dz]) => {
+          b(dx, 0, dz, 9, 13, 9, '#3a2517', { all: WOOD });
+          b(dx, 13, dz, 14, 4, 14, '#4a2f1c', { all: WOOD });
+        });
+
+        // обитое основание с кантом
+        b(0, 17, 0, 190, 26, 170, DARK, { all: FLAT });
+        b(0, 43, 0, 193, 3, 173, PIPE);
+        b(0, 17, 0, 193, 3, 173, PIPE);
+
+        // сиденье: мягкая подушка с рантом и «пухлым» верхом
+        b(0, 46, 12, 134, 16, 120, SOFT, { all: FLAT, top: PUFFY });
+        b(0, 54, 12, 137, 2.5, 123, PIPE);
+        b(0, 62, 12, 126, 6, 112, LIGHT, { all: FLAT, top: PUFFY });
+
+        // спинка: каркас, валик у головы и стёганая подушка
+        b(0, 43, -68, 190, 100, 34, BODY, { all: FLAT });
+        b(0, 143, -68, 197, 14, 42, SOFT, { all: FLAT, top: PUFFY });
+        b(0, 157, -68, 178, 5, 36, LIGHT, { all: FLAT, top: PUFFY });
+        b(0, 68, -47, 128, 72, 20, SOFT, { all: FLAT, front: QUILT, top: PUFFY });
+        b(0, 140, -47, 134, 3, 24, PIPE);
+
+        // подлокотники с валиками и кантом
+        [-81, 81].forEach(ax => {
+          b(ax, 43, 0, 26, 40, 160, DARK, { all: FLAT });
+          b(ax, 83, 0, 34, 10, 168, SOFT, { all: FLAT, top: PUFFY });
+          b(ax, 93, 0, 25, 5, 160, LIGHT, { all: FLAT, top: PUFFY });
+          b(ax, 81, 0, 35, 2.5, 169, PIPE);
+        });
+      }      armchair(-310, 90);
+      armchair(310, -90);
+
+      // ---- Столик с книгами и чашкой ----
+      (function table() {
+        const g = group(0, 0, 0);
+        shadow(0, 0, 280, 200);
+        [[-100, -58], [100, -58], [-100, 58], [100, 58]].forEach(([dx, dz]) =>
+          box(g, dx, 0, dz, 14, 104, 14, '#6b4429'));
+        box(g, 0, 28, 0, 200, 8, 118, '#7a4d31');                  // нижняя полка
+        box(g, 0, 104, 0, 240, 16, 160, '#a9754a');                // столешница
+        box(g, -45, 120, -12, 100, 14, 70, '#3f5f7a', 8);          // стопка книг
+        box(g, -43, 134, -10, 92, 13, 64, '#8a3b3b', -6);
+        box(g, -46, 147, -12, 96, 12, 66, '#4d6b45', 12, '', 14, 'я очень сильно скучаю');
+        // небольшая ваза: основание, пузатое тело, плечо, горлышко, венчик
+        const VX = 78, VZ = 38, VASE = '#3f6f8f';
+        cylinder(g, VX, 120, VZ, 11, 3, shade(VASE, 0.8));
+        cylinder(g, VX, 123, VZ, 17, 24, VASE, 16);
+        cylinder(g, VX, 147, VZ, 12, 6, VASE, 16);
+        cylinder(g, VX, 153, VZ, 7.5, 10, VASE, 12);
+        cylinder(g, VX, 163, VZ, 10, 3, shade(VASE, 1.25), 12, true);
+        // роза: стебель, шипы, листья и бутон из колец лепестков
+        const GREEN = '#3f6b3a';
+        box(g, VX, 140, VZ, 3, 92, 3, GREEN);
+        box(g, VX + 2.5, 176, VZ, 3, 2, 3, '#2f4f2b', 0);          // шипы
+        box(g, VX - 2.5, 198, VZ + 1, 3, 2, 3, '#2f4f2b', 0);
+        leaf(g, VX, 168, VZ, 35, 68, 34, 17);                       // листья на стебле
+        leaf(g, VX, 188, VZ, 215, 62, 30, 15);
+        leaf(g, VX, 205, VZ, 120, 75, 20, 11);
+        const BASE = 228;                                           // низ бутона
+        for (let n = 0; n < 5; n++) petal(g, VX, BASE - 2, VZ, n * 72 + 10, 112, 9, 15, '#3d6a38', true);  // чашелистики
+        for (let n = 0; n < 5; n++) petal(g, VX, BASE, VZ, n * 72, 58, 25, 27, '#9c1029');                 // наружное кольцо
+        for (let n = 0; n < 5; n++) petal(g, VX, BASE + 4, VZ, n * 72 + 36, 38, 21, 25, '#b81a36');        // среднее
+        for (let n = 0; n < 4; n++) petal(g, VX, BASE + 8, VZ, n * 90 + 20, 20, 17, 21, '#d12a47');        // внутреннее
+        for (let n = 0; n < 3; n++) petal(g, VX, BASE + 11, VZ, n * 120 + 50, 4, 12, 17, '#e24562');       // завиток
+        box(g, VX, BASE + 12, VZ, 5, 12, 5, '#7d0a1e', 30);                                              // сердцевина
+      })();
+
+      // ---- Полка с книгами на задней стене ----
+      (function shelf() {
+        const g = group(0, 0, 0);
+        const Z = -480;
+        box(g, 240, 330, Z, 440, 12, 80, '#5a3e28');
+        box(g, 60, 290, Z - 8, 12, 40, 56, '#4a3220');
+        box(g, 420, 290, Z - 8, 12, 40, 56, '#4a3220');
+        // На корешке каждой книги - тёплое слово; высота книги зависит от длины слова
+        const words = ['Красавица', 'Умница', 'Очаровательная', 'Солнышко', 'Королева',
+                       'Милашка', 'Звёздочка', 'Богиня', 'Прелесть', 'Чудо'];
+        const colors = ['#8a3b3b', '#3f5f7a', '#6b3a52', '#4d6b45', '#7a4d6b',
+                        '#a8683a', '#2f4a5e', '#b5483f', '#5a6b3a', '#3a4f6b'];
+        const FS = 17;
+        let x = 36;
+        words.forEach((word, n) => {
+          const w = 34, h = Math.round(word.length * FS * 0.62 + 34);
+          box(g, x + w / 2, 342, Z, w, h, 52, colors[n], 0, word, FS);
+          x += w + 3;
+        });      })();
+
+      // Потолочное крепление, к которому подвешен провод
+      box(group(0, 0, 0), 0, 802, 0, 90, 18, 90, '#3a3a3a');
+
+      // ---- Камера внутри комнаты: ходит по малому кругу вокруг лампочки ----
+      const R = 300;                     // радиус круга, по которому ходит камера
+      let angle = -30, shown = angle;    // целевой и текущий угол (градусы)
+      let P = 450;                       // фокусное расстояние перспективы
+
+      const render = () => {
+        const a = rad(shown);
+        // камера в (R sin a, 0, R cos a) смотрит на лампочку; translateZ(P) ставит глаз в точку перспективы
+        world.style.transform =
+          `translateZ(${P}px) rotateY(${-shown}deg) translate3d(${-R * Math.sin(a)}px,0,${-R * Math.cos(a)}px)`;
+      };
+      // Плавное движение: текущий угол догоняет целевой
+      (function loop() {
+        const d = angle - shown;
+        shown = Math.abs(d) < 0.01 ? angle : shown + d * 0.09;
+        render();
+        requestAnimationFrame(loop);
+      })();
+
+      addEventListener('wheel', e => {
+        e.preventDefault();
+        angle += e.deltaY * 0.15;
+      }, { passive: false });
+
+      // То же самое для перетаскивания пальцем/мышью и стрелок клавиатуры
+      let dragX = null;
+      addEventListener('pointerdown', e => { if (!e.target.closest('.bulb')) dragX = e.clientX; });
+      addEventListener('pointermove', e => {
+        if (dragX === null) return;
+        angle += (e.clientX - dragX) * 0.3;
+        dragX = e.clientX;
+      });
+      addEventListener('pointerup', () => { dragX = null; });
+      addEventListener('keydown', e => {
+        if (e.key === 'ArrowLeft')  angle -= 15;
+        if (e.key === 'ArrowRight') angle += 15;
+      });
+
+      // Перспектива по высоте окна; лампа соразмерна комнате: 0.45 - её размер в мире, P/R - перспективный масштаб на расстоянии R
+      const fit = () => {
+        P = Math.max(260, innerHeight * 0.53);
+        document.documentElement.style.setProperty('--P', P.toFixed(0) + 'px');
+        document.documentElement.style.setProperty('--lamp-s', (0.45 * P / R).toFixed(3));
+      };
+      addEventListener('resize', fit);
+      fit();
+    })();
+    const lamp = document.getElementById('lamp');
+    const bulb = document.getElementById('bulb');
+    const hint = document.getElementById('hint');
+
+    bulb.addEventListener('click', () => {
+      const isOn = lamp.classList.toggle('on');
+      document.body.classList.toggle('on', isOn);
+      bulb.setAttribute('aria-pressed', isOn);
+      bulb.setAttribute('aria-label', isOn ? 'Выключить лампочку' : 'Включить лампочку');
+      hint.textContent = isOn ? 'Свет включён' : 'Нажми на лампочку';
+    });
+  </script>
+</body>
+</html>
+
+
+
+
